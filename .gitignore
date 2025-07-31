@@ -33,6 +33,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+# higgs audio
+higgs-audio/
 develop-eggs/
 dist/
 downloads/
