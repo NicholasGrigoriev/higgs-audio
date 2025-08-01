@@ -11,13 +11,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Installation Commands
 ```bash
-# Clone repository
+# Clone repository (original upstream)
 git clone https://github.com/boson-ai/higgs-audio.git
 cd higgs-audio
 
 # Install dependencies and package
 pip install -r requirements.txt
 pip install -e .
+```
+
+### Docker Installation
+```bash
+# Build and run with Docker
+docker build -t higgs-audio .
+docker run --gpus all -p 5000:5000 higgs-audio
+
+# Or use docker-compose
+docker-compose up --build
 ```
 
 ### Alternative Installation Methods
@@ -123,3 +133,26 @@ curl -X POST "http://localhost:8000/v1/audio/speech" \
 - Base models: `bosonai/higgs-audio-v2-generation-3B-base` (3.6B LLM + 2.2B audio adapter)
 - Audio tokenizer: `bosonai/higgs-audio-v2-tokenizer`
 - Default generation parameters: temperature=0.3, top_p=0.95, top_k=50
+
+### API Server
+```bash
+# Start Flask API server
+python3 api_server.py
+
+# Server runs on http://localhost:5000 with endpoints:
+# GET /health - Health check
+# POST /generate - Audio generation
+```
+
+### Testing
+This project currently uses example scripts for validation rather than formal unit tests:
+```bash
+# Test basic generation
+python3 examples/generation.py --transcript "Hello world" --out_path test_output.wav
+
+# Test voice cloning
+python3 examples/generation.py --transcript "Hello world" --ref_audio belinda --out_path test_clone.wav
+
+# Test multi-speaker dialogue
+python3 examples/generation.py --transcript examples/transcript/multi_speaker/en_argument.txt --out_path test_dialog.wav
+```
