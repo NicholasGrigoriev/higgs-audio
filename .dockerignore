@@ -1,0 +1,34 @@
+# Exclude cache directories
+cache/
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Exclude git and IDE files
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Exclude documentation and examples that aren't needed in container
+*.md
+README*
+LICENSE
+docs/
+examples/generation.py.bak
+
+# Exclude build artifacts
+build/
+dist/
+*.egg-info/
+
+# Exclude OS files
+.DS_Store
+Thumbs.db

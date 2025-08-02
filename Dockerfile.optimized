@@ -1,0 +1,71 @@
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+
+WORKDIR /app
+
+# Install Python and system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
+    build-essential \
+    git \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python3.10 as default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Install Flask for API server
+RUN pip install flask
+
+# Copy HiggsAudio source code
+COPY . .
+
+# Install HiggsAudio package in development mode
+RUN pip install -e .
+
+# Pre-download models to improve startup time
+ENV HF_HOME=/root/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+ENV HF_HUB_CACHE=/root/.cache/huggingface/hub
+
+# Create a script to pre-download models
+RUN echo '#!/bin/bash\n\
+echo "Pre-downloading Higgs Audio models..."\n\
+python3 -c "\
+from transformers import AutoTokenizer, AutoConfig; \
+from boson_multimodal.audio_processing.higgs_audio_tokenizer import load_higgs_audio_tokenizer; \
+from boson_multimodal.model.higgs_audio import HiggsAudioModel; \
+import torch; \
+print(\"Downloading main model...\"); \
+model = HiggsAudioModel.from_pretrained(\"bosonai/higgs-audio-v2-generation-3B-base\", device_map=\"cpu\", torch_dtype=torch.bfloat16); \
+print(\"Downloading tokenizer...\"); \
+tokenizer = AutoTokenizer.from_pretrained(\"bosonai/higgs-audio-v2-generation-3B-base\"); \
+print(\"Downloading audio tokenizer...\"); \
+audio_tokenizer = load_higgs_audio_tokenizer(\"bosonai/higgs-audio-v2-tokenizer\", device=\"cpu\"); \
+print(\"All models downloaded successfully!\")\
+"\n\
+echo "Model pre-download completed!"' > /tmp/download_models.sh && \
+    chmod +x /tmp/download_models.sh
+
+# Run the download script during build
+RUN /tmp/download_models.sh
+
+# Create output directory
+RUN mkdir -p /app/output
+
+# Expose API port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command to run API server
+CMD ["python3", "api_server.py"]

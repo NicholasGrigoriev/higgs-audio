@@ -189,6 +189,7 @@ class HiggsAudioModelClient:
         # Use explicit device if provided, otherwise try CUDA/MPS/CPU
         if device_id is not None:
             device = f"cuda:{device_id}"
+            self._device = device
         else:
             if device is not None:
                 self._device = device
@@ -707,7 +708,7 @@ def main(
 
     for tag, replacement in [
         ("[laugh]", "<SE>[Laughter]</SE>"),
-        ("[humming start]", "<SE>[Humming]</SE>"),
+        ("[humming start]", "<SE_s>[Humming]</SE_s>"),
         ("[humming end]", "<SE_e>[Humming]</SE_e>"),
         ("[music start]", "<SE_s>[Music]</SE_s>"),
         ("[music end]", "<SE_e>[Music]</SE_e>"),

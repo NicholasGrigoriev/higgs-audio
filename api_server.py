@@ -120,8 +120,38 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            cwd='/app'
+            cwd='/app',
+            bufsize=1,  # Line buffered
+            universal_newlines=True
         )
+        
+        # Thread-safe lists to store output
+        stdout_lines = []
+        stderr_lines = []
+        
+        def read_stdout():
+            """Read stdout and log each line"""
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    line = line.rstrip('\n\r')
+                    logger.info(f"[Job {job_id}] STDOUT: {line}")
+                    stdout_lines.append(line)
+            process.stdout.close()
+        
+        def read_stderr():
+            """Read stderr and log each line"""
+            for line in iter(process.stderr.readline, ''):
+                if line:
+                    line = line.rstrip('\n\r')
+                    logger.warning(f"[Job {job_id}] STDERR: {line}")
+                    stderr_lines.append(line)
+            process.stderr.close()
+        
+        # Start threads to read stdout and stderr
+        stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
         
         # Monitor process with periodic logging
         last_log_time = time.time()
@@ -150,9 +180,16 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                 
             time.sleep(1)  # Check every second
         
-        # Get final results
-        stdout, stderr = process.communicate()
+        # Wait for threads to finish reading any remaining output
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        
+        # Get return code
         return_code = process.returncode
+        
+        # Join output lines for final logging
+        stdout = '\n'.join(stdout_lines)
+        stderr = '\n'.join(stderr_lines)
         
         processing_time = time.time() - start_time
         logger.info(f"HiggsAudio process completed with return code: {return_code}")
@@ -180,14 +217,14 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                         processing_time_seconds=processing_time,
                         output_file=output_filename,
                         file_size_bytes=file_size,
-                        stdout=process.stdout,
-                        stderr=process.stderr)
+                        stdout=stdout,
+                        stderr=stderr)
                 
                 logger.info(f"Job {job_id} completed successfully in {processing_time:.1f}s")
             else:
                 raise Exception("Output file was not created")
         else:
-            raise Exception(f"HiggsAudio failed with return code {process.returncode}: {process.stderr}")
+            raise Exception(f"HiggsAudio failed with return code {return_code}: {stderr}")
     
     except subprocess.TimeoutExpired:
         logger.error(f"Job {job_id} timed out after {MAX_PROCESSING_TIME}s")
@@ -200,8 +237,8 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
         save_job(job_id, JobStatus.FAILED,
                 failed_at=datetime.now().isoformat(),
                 error=str(e),
-                stdout=getattr(process, 'stdout', ''),
-                stderr=getattr(process, 'stderr', ''))
+                stdout='\n'.join(stdout_lines) if 'stdout_lines' in locals() else '',
+                stderr='\n'.join(stderr_lines) if 'stderr_lines' in locals() else '')
 
 @app.route('/health', methods=['GET'])
 def health_check():

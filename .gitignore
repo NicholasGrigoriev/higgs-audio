@@ -33,8 +33,6 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
-# higgs audio
-higgs-audio/
 develop-eggs/
 dist/
 downloads/
@@ -201,3 +199,4 @@ result/
 
 # Ruff
 .ruff_cache/
+cache/huggingface/

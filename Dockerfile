@@ -1,25 +1,16 @@
-FROM nvidia/cuda:12.1-devel-ubuntu22.04
+FROM nvcr.io/nvidia/pytorch:25.02-py3
 
 WORKDIR /app
 
-# Install Python and system dependencies
+# Install additional system dependencies (PyTorch and Python already included)
 RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3.10-dev \
-    python3-pip \
-    build-essential \
-    git \
     ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Python3.10 as default python3
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
-
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install  -r requirements.txt
 
 # Install Flask for API server
 RUN pip install flask
