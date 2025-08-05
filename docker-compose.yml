@@ -14,6 +14,12 @@ services:
       - OUTPUT_DIR=/app/output
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # AWS SQS Configuration
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - GENERATION_COMPLETE_QUEUE_URL=${GENERATION_COMPLETE_QUEUE_URL:-}
+      - GOOGLE_DRIVE_UPLOAD_QUEUE_URL=${GOOGLE_DRIVE_UPLOAD_QUEUE_URL:-}
     deploy:
       resources:
         reservations:

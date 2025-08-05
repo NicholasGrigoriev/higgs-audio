@@ -15,6 +15,8 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 import threading
 import time
+import boto3
+from botocore.exceptions import ClientError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +43,21 @@ OUTPUT_DIR = "/app/output"  # Docker volume mount point
 GENERATION_SCRIPT = "/app/examples/generation.py"
 MAX_PROCESSING_TIME = 600  # 10 minutes timeout
 
+# SQS Configuration
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+GENERATION_COMPLETE_QUEUE = os.environ.get('GENERATION_COMPLETE_QUEUE_URL', '')
+GOOGLE_DRIVE_UPLOAD_QUEUE = os.environ.get('GOOGLE_DRIVE_UPLOAD_QUEUE_URL', '')
+
+# Initialize SQS client if queue URLs are provided
+sqs_client = None
+if GENERATION_COMPLETE_QUEUE or GOOGLE_DRIVE_UPLOAD_QUEUE:
+    try:
+        sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+        logger.info(f"SQS client initialized for region: {AWS_REGION}")
+    except Exception as e:
+        logger.error(f"Failed to initialize SQS client: {e}")
+        sqs_client = None
+
 # In-memory job tracking
 jobs = {}
 job_lock = threading.Lock()
@@ -66,6 +83,24 @@ def save_job(job_id, status, **kwargs):
             'updated_at': datetime.now().isoformat(),
             **kwargs
         })
+
+def send_sqs_message(queue_url, message_body, message_attributes=None):
+    """Send message to SQS queue"""
+    if not sqs_client or not queue_url:
+        logger.warning(f"SQS not configured, skipping message send to {queue_url}")
+        return None
+    
+    try:
+        response = sqs_client.send_message(
+            QueueUrl=queue_url,
+            MessageBody=json.dumps(message_body),
+            MessageAttributes=message_attributes or {}
+        )
+        logger.info(f"SQS message sent to {queue_url}: {response['MessageId']}")
+        return response['MessageId']
+    except ClientError as e:
+        logger.error(f"Failed to send SQS message: {e}")
+        return None
 
 def get_job(job_id):
     """Thread-safe job retrieval"""
@@ -184,6 +219,39 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                         stderr=process.stderr)
                 
                 logger.info(f"Job {job_id} completed successfully in {processing_time:.1f}s")
+                
+                # Get job details for SQS messages
+                job_details = get_job(job_id)
+                
+                # Send completion message to original queue (if configured)
+                if GENERATION_COMPLETE_QUEUE:
+                    completion_message = {
+                        'job_id': job_id,
+                        'request_id': job_details.get('request_id'),
+                        'status': 'completed',
+                        'output_file': output_filename,
+                        'file_path': output_path,
+                        'file_size_bytes': file_size,
+                        'processing_time_seconds': processing_time,
+                        'completed_at': datetime.now().isoformat()
+                    }
+                    send_sqs_message(GENERATION_COMPLETE_QUEUE, completion_message)
+                
+                # Send Google Drive upload request to new queue (if configured)
+                if GOOGLE_DRIVE_UPLOAD_QUEUE:
+                    upload_message = {
+                        'job_id': job_id,
+                        'request_id': job_details.get('request_id'),
+                        'file_path': output_path,
+                        'file_name': output_filename,
+                        'file_size_bytes': file_size,
+                        'text': job_details.get('text'),
+                        'ref_audio': job_details.get('ref_audio'),
+                        'created_at': job_details.get('created_at'),
+                        'completed_at': datetime.now().isoformat(),
+                        'source_system': 'higgs-audio'
+                    }
+                    send_sqs_message(GOOGLE_DRIVE_UPLOAD_QUEUE, upload_message)
             else:
                 raise Exception("Output file was not created")
         else:
@@ -368,6 +436,16 @@ if __name__ == '__main__':
     logger.info(f"Output directory: {OUTPUT_DIR}")
     logger.info(f"Generation script: {GENERATION_SCRIPT}")
     logger.info(f"Max processing time: {MAX_PROCESSING_TIME} seconds")
+    
+    # Log SQS configuration
+    if sqs_client:
+        logger.info("✓ SQS client initialized")
+        if GENERATION_COMPLETE_QUEUE:
+            logger.info(f"  - Generation complete queue: {GENERATION_COMPLETE_QUEUE}")
+        if GOOGLE_DRIVE_UPLOAD_QUEUE:
+            logger.info(f"  - Google Drive upload queue: {GOOGLE_DRIVE_UPLOAD_QUEUE}")
+    else:
+        logger.info("○ SQS not configured - messages will not be sent")
     
     # Check if generation script exists
     if os.path.exists(GENERATION_SCRIPT):
