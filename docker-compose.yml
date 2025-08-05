@@ -9,6 +9,8 @@ services:
       - "${TTS_OUTPUT_DIR:-./output}:/app/output"
       # Mount models/reference audio if needed
       - "./models:/app/models:ro"
+      # Mount Hugging Face cache for persistent model storage  
+      - "./cache/huggingface:/root/.cache/huggingface"
     environment:
       - PYTHONPATH=/app
       - OUTPUT_DIR=/app/output
@@ -20,6 +22,9 @@ services:
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - GENERATION_COMPLETE_QUEUE_URL=${GENERATION_COMPLETE_QUEUE_URL:-}
       - GOOGLE_DRIVE_UPLOAD_QUEUE_URL=${GOOGLE_DRIVE_UPLOAD_QUEUE_URL:-}
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+      - HF_HUB_CACHE=/root/.cache/huggingface/hub
     deploy:
       resources:
         reservations:
