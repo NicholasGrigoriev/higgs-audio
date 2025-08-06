@@ -338,7 +338,12 @@ def generate_tts():
         # Create job ID and output filename
         job_id = create_job_id()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"{timestamp}_{request_id}_{job_id}.wav"
+        
+        # Sanitize request_id for Windows-compatible filename
+        # Replace colons, slashes, and other invalid characters
+        safe_request_id = request_id.replace(':', '-').replace('/', '-').replace('\\', '-').replace('?', '-').replace('*', '-').replace('"', '-').replace('<', '-').replace('>', '-').replace('|', '-')
+        
+        output_filename = f"{timestamp}_{safe_request_id}_{job_id}.wav"
         
         # Save initial job info
         save_job(job_id, JobStatus.PENDING,
