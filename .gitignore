@@ -200,3 +200,4 @@ result/
 # Ruff
 .ruff_cache/
 cache/huggingface/
+output/

@@ -288,6 +288,9 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                         'completed_at': datetime.now().isoformat(),
                         'source_system': 'higgs-audio'
                     }
+
+                    logger.info(f"Sending Google Drive upload message to {GOOGLE_DRIVE_UPLOAD_QUEUE}")
+                    logger.info(f"Upload message: {upload_message}")
                     send_sqs_message(GOOGLE_DRIVE_UPLOAD_QUEUE, upload_message)
             else:
                 raise Exception("Output file was not created")
