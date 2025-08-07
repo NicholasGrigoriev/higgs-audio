@@ -107,7 +107,7 @@ def get_job(job_id):
     with job_lock:
         return jobs.get(job_id, {})
 
-def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename):
+def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id=None):
     """Process TTS job in background thread"""
     try:
         logger.info(f"Starting TTS processing for job {job_id}")
@@ -259,12 +259,16 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                 
                 # Get job details for SQS messages
                 job_details = get_job(job_id)
+
+                logger.info(f"GENERATION COMPLETE_QUEUE: {GENERATION_COMPLETE_QUEUE}")
                 
                 # Send completion message to original queue (if configured)
                 if GENERATION_COMPLETE_QUEUE:
+                    logger.info(f"Sending completion message to {GENERATION_COMPLETE_QUEUE}")
                     completion_message = {
                         'job_id': job_id,
                         'request_id': job_details.get('request_id'),
+                        'tg_chat_id': job_details.get('tg_chat_id'),  # Include tg_chat_id
                         'status': 'completed',
                         'output_file': output_filename,
                         'file_path': output_path,
@@ -273,12 +277,14 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                         'completed_at': datetime.now().isoformat()
                     }
                     send_sqs_message(GENERATION_COMPLETE_QUEUE, completion_message)
+                    logger.info(f"Completion message sent to {GENERATION_COMPLETE_QUEUE}")
                 
                 # Send Google Drive upload request to new queue (if configured)
                 if GOOGLE_DRIVE_UPLOAD_QUEUE:
                     upload_message = {
                         'job_id': job_id,
                         'request_id': job_details.get('request_id'),
+                        'tg_chat_id': job_details.get('tg_chat_id'),  # Include tg_chat_id
                         'file_path': output_path,
                         'file_name': output_filename,
                         'file_size_bytes': file_size,
@@ -337,6 +343,7 @@ def generate_tts():
         seed = data.get('seed', 12345)
         temperature = data.get('temperature', 0.3)  # For future use
         request_id = data.get('request_id', str(uuid.uuid4()))
+        tg_chat_id = data.get('tg_chat_id')  # Get tg_chat_id from request
         
         # Create job ID and output filename
         job_id = create_job_id()
@@ -356,12 +363,13 @@ def generate_tts():
                 seed=seed,
                 temperature=temperature,
                 request_id=request_id,
+                tg_chat_id=tg_chat_id,  # Save tg_chat_id
                 output_filename=output_filename)
         
         # Start background processing
         thread = threading.Thread(
             target=process_tts_job,
-            args=(job_id, text, ref_audio, seed, temperature, output_filename)
+            args=(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id)
         )
         thread.daemon = True
         thread.start()
@@ -396,7 +404,7 @@ def get_job_status(job_id):
     
     # Add job-specific fields
     for field in ['created_at', 'started_at', 'completed_at', 'failed_at', 
-                  'text', 'ref_audio', 'seed', 'temperature', 'request_id',
+                  'text', 'ref_audio', 'seed', 'temperature', 'request_id', 'tg_chat_id',
                   'processing_time_seconds', 'output_filename', 'file_size_bytes',
                   'error', 'stdout', 'stderr']:
         if field in job:
