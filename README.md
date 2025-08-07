@@ -42,7 +42,7 @@ docker run --gpus all --ipc=host --net=host --ulimit memlock=-1 --ulimit stack=6
 
 
 ```bash
-git clone https://github.com/boson-ai/higgs-audio.git
+git clone https://github.com/NicholasGrigoriev/higgs-audio.git
 cd higgs-audio
 
 pip install -r requirements.txt
@@ -52,7 +52,7 @@ pip install -e .
 ### Option 2: Using venv
 
 ```bash
-git clone https://github.com/boson-ai/higgs-audio.git
+git clone https://github.com/NicholasGrigoriev/higgs-audio.git
 cd higgs-audio
 
 python3 -m venv higgs_audio_env
@@ -64,7 +64,7 @@ pip install -e .
 
 ### Option 3: Using conda
 ```bash
-git clone https://github.com/boson-ai/higgs-audio.git
+git clone https://github.com/NicholasGrigoriev/higgs-audio.git
 cd higgs-audio
 
 conda create -y --prefix ./conda_env --override-channels --strict-channel-priority --channel "conda-forge" "python==3.10.*"
@@ -79,7 +79,7 @@ conda remove -y --prefix ./conda_env --all
 
 ### Option 4: Using uv
 ```bash
-git clone https://github.com/boson-ai/higgs-audio.git
+git clone https://github.com/NicholasGrigoriev/higgs-audio.git
 cd higgs-audio
 
 uv venv --python 3.10
@@ -92,6 +92,26 @@ uv pip install -e .
 
 For advanced usage with higher throughput, we also built OpenAI compatible API server backed by vLLM engine for you to use.
 Please refer to [examples/vllm](./examples/vllm) for more details.
+
+### Option 6: Using Docker with API Server
+
+For production use, we provide a REST API server with Docker support:
+
+```bash
+# Build and run with Docker
+docker build -t higgs-audio .
+docker-compose up -d
+
+# API will be available at http://localhost:8000
+```
+
+The API server includes:
+- Asynchronous job processing
+- Google Drive integration for automatic file uploads
+- AWS SQS integration for message queue processing
+- Health monitoring and job status tracking
+
+See [docs/google-drive-integration.md](./docs/google-drive-integration.md) for detailed configuration instructions.
 
 
 ## Usage
@@ -145,6 +165,34 @@ torchaudio.save(f"output.wav", torch.from_numpy(output.audio)[None, :], output.s
 ```
 
 We also provide a list of examples under [examples](./examples). In the following we highlight a few examples to help you use Higgs Audio v2.
+
+### REST API Usage
+
+The Docker setup includes a REST API server for easy integration:
+
+```bash
+# Generate audio
+curl -X POST http://localhost:8000/tts/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Hello, this is a test",
+    "ref_audio": "belinda",
+    "request_id": "test-123"
+  }'
+
+# Check job status
+curl http://localhost:8000/tts/status/{job_id}
+
+# Download generated audio
+curl http://localhost:8000/tts/download/{job_id} -o output.wav
+```
+
+API Endpoints:
+- `POST /tts/generate` - Generate audio from text
+- `GET /tts/status/{job_id}` - Get job status
+- `GET /tts/download/{job_id}` - Download generated audio
+- `GET /health` - Health check
+- `GET /info` - Service information
 
 ### Zero-Shot Voice Cloning
 Generate audio that sounds similar as the provided [reference audio](./examples/voice_prompts/belinda.wav).
