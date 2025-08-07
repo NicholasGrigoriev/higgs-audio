@@ -2,7 +2,7 @@ FROM nvcr.io/nvidia/pytorch:25.02-py3
 
 WORKDIR /app
 
-# Install additional system dependencies (PyTorch and Python already included)
+# Install additional system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \

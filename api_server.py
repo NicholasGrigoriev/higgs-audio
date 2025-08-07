@@ -288,6 +288,9 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                         'completed_at': datetime.now().isoformat(),
                         'source_system': 'higgs-audio'
                     }
+
+                    logger.info(f"Sending Google Drive upload message to {GOOGLE_DRIVE_UPLOAD_QUEUE}")
+                    logger.info(f"Upload message: {upload_message}")
                     send_sqs_message(GOOGLE_DRIVE_UPLOAD_QUEUE, upload_message)
             else:
                 raise Exception("Output file was not created")
@@ -338,7 +341,12 @@ def generate_tts():
         # Create job ID and output filename
         job_id = create_job_id()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"{timestamp}_{request_id}_{job_id}.wav"
+        
+        # Sanitize request_id for Windows-compatible filename
+        # Replace colons, slashes, and other invalid characters
+        safe_request_id = request_id.replace(':', '-').replace('/', '-').replace('\\', '-').replace('?', '-').replace('*', '-').replace('"', '-').replace('<', '-').replace('>', '-').replace('|', '-')
+        
+        output_filename = f"{timestamp}_{safe_request_id}_{job_id}.wav"
         
         # Save initial job info
         save_job(job_id, JobStatus.PENDING,
