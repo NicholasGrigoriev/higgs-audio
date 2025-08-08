@@ -15,8 +15,6 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 import threading
 import time
-import boto3
-from botocore.exceptions import ClientError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,20 +41,6 @@ OUTPUT_DIR = "/app/output"  # Docker volume mount point
 GENERATION_SCRIPT = "/app/examples/generation.py"
 MAX_PROCESSING_TIME = 600  # 10 minutes timeout
 
-# SQS Configuration
-AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
-GENERATION_COMPLETE_QUEUE = os.environ.get('GENERATION_COMPLETE_QUEUE_URL', '')
-N8N_WEBHOOK_URL = os.environ.get('N8N_WEBHOOK_URL', '')
-
-# Initialize SQS client if queue URLs are provided
-sqs_client = None
-if GENERATION_COMPLETE_QUEUE:
-    try:
-        sqs_client = boto3.client('sqs', region_name=AWS_REGION)
-        logger.info(f"SQS client initialized for region: {AWS_REGION}")
-    except Exception as e:
-        logger.error(f"Failed to initialize SQS client: {e}")
-        sqs_client = None
 
 # In-memory job tracking
 jobs = {}
@@ -84,30 +68,13 @@ def save_job(job_id, status, **kwargs):
             **kwargs
         })
 
-def send_sqs_message(queue_url, message_body, message_attributes=None):
-    """Send message to SQS queue"""
-    if not sqs_client or not queue_url:
-        logger.warning(f"SQS not configured, skipping message send to {queue_url}")
-        return None
-    
-    try:
-        response = sqs_client.send_message(
-            QueueUrl=queue_url,
-            MessageBody=json.dumps(message_body),
-            MessageAttributes=message_attributes or {}
-        )
-        logger.info(f"SQS message sent to {queue_url}: {response['MessageId']}")
-        return response['MessageId']
-    except ClientError as e:
-        logger.error(f"Failed to send SQS message: {e}")
-        return None
 
 def get_job(job_id):
     """Thread-safe job retrieval"""
     with job_lock:
         return jobs.get(job_id, {})
 
-def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename, use_system_message=False):
+def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id=None, use_system_message=False ):
     """Process TTS job in background thread"""
     try:
         logger.info(f"Starting TTS processing for job {job_id}")
@@ -260,45 +227,6 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename,
                         stderr=stderr)
                 
                 logger.info(f"Job {job_id} completed successfully in {processing_time:.1f}s")
-                
-                # Get job details for SQS messages
-                job_details = get_job(job_id)
-                
-                # Send completion message to original queue (if configured)
-                if GENERATION_COMPLETE_QUEUE:
-                    completion_message = {
-                        'job_id': job_id,
-                        'request_id': job_details.get('request_id'),
-                        'status': 'completed',
-                        'output_file': output_filename,
-                        'file_path': output_path,
-                        'file_size_bytes': file_size,
-                        'processing_time_seconds': processing_time,
-                        'completed_at': datetime.now().isoformat()
-                    }
-                    send_sqs_message(GENERATION_COMPLETE_QUEUE, completion_message)
-                
-                # Send n8n webhook notification (if configured)
-                if N8N_WEBHOOK_URL:
-                    webhook_payload = {
-                        'job_id': job_id,
-                        'request_id': job_details.get('request_id'),
-                        'file_path': output_path,
-                        'file_name': output_filename,
-                        'file_size_bytes': file_size,
-                        'text': job_details.get('text'),
-                        'ref_audio': job_details.get('ref_audio'),
-                        'created_at': job_details.get('created_at'),
-                        'completed_at': datetime.now().isoformat(),
-                        'source_system': 'higgs-audio'
-                    }
-
-                    try:
-                        import requests
-                        response = requests.post(N8N_WEBHOOK_URL, json=webhook_payload)
-                        logger.info(f"n8n webhook notification sent: {response.status_code}")
-                    except Exception as e:
-                        logger.error(f"Failed to send n8n webhook: {e}")
             else:
                 raise Exception("Output file was not created")
         else:
@@ -357,6 +285,7 @@ def generate_tts():
         seed = data.get('seed', 12345)
         temperature = data.get('temperature', 0.3)  # For future use
         request_id = data.get('request_id', str(uuid.uuid4()))
+        tg_chat_id = data.get('tg_chat_id')  # Get tg_chat_id from request
         
         # Create job ID and output filename
         job_id = create_job_id()
@@ -376,6 +305,7 @@ def generate_tts():
                 seed=seed,
                 temperature=temperature,
                 request_id=request_id,
+                tg_chat_id=tg_chat_id,  # Save tg_chat_id
                 output_filename=output_filename)
         
         # Start background processing
@@ -383,7 +313,7 @@ def generate_tts():
         use_system_message = voice_description is not None
         thread = threading.Thread(
             target=process_tts_job,
-            args=(job_id, text, ref_audio, seed, temperature, output_filename, use_system_message)
+            args=(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id, use_system_message)
         )
         thread.daemon = True
         thread.start()
@@ -418,7 +348,7 @@ def get_job_status(job_id):
     
     # Add job-specific fields
     for field in ['created_at', 'started_at', 'completed_at', 'failed_at', 
-                  'text', 'ref_audio', 'seed', 'temperature', 'request_id',
+                  'text', 'ref_audio', 'seed', 'temperature', 'request_id', 'tg_chat_id',
                   'processing_time_seconds', 'output_filename', 'file_size_bytes',
                   'error', 'stdout', 'stderr']:
         if field in job:
@@ -503,18 +433,6 @@ if __name__ == '__main__':
     logger.info(f"Output directory: {OUTPUT_DIR}")
     logger.info(f"Generation script: {GENERATION_SCRIPT}")
     logger.info(f"Max processing time: {MAX_PROCESSING_TIME} seconds")
-    
-    # Log SQS configuration
-    if sqs_client:
-        logger.info("✓ SQS client initialized")
-        if GENERATION_COMPLETE_QUEUE:
-            logger.info(f"  - Generation complete queue: {GENERATION_COMPLETE_QUEUE}")
-    
-    # Log webhook configuration
-    if N8N_WEBHOOK_URL:
-        logger.info(f"✓ n8n webhook configured: {N8N_WEBHOOK_URL}")
-    else:
-        logger.info("○ SQS not configured - messages will not be sent")
     
     # Check if generation script exists
     if os.path.exists(GENERATION_SCRIPT):
