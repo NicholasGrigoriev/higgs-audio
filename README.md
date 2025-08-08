@@ -107,11 +107,9 @@ docker-compose up -d
 
 The API server includes:
 - Asynchronous job processing
-- Google Drive integration for automatic file uploads
+- n8n webhook integration for workflow automation
 - AWS SQS integration for message queue processing
 - Health monitoring and job status tracking
-
-See [docs/google-drive-integration.md](./docs/google-drive-integration.md) for detailed configuration instructions.
 
 
 ## Usage

@@ -3,3 +3,18 @@ profiles:
   female_en_story: She speaks with a calm, gentle, and informative tone at a measured pace, with excellent articulation and very clear audio. She naturally brings storytelling to life with an articulate, genuine, and personable vocal style.
   male_en_british: He speaks with a clear British accent and a conversational, inquisitive tone. His delivery is articulate and at a moderate pace, and very clear audio.
   female_en_british: A female voice with a clear British accent speaking at a modern rate with a moderate-pitch in an expressive and friendly tone and very clear audio.
+  
+  # Additional voice profiles
+  narrator_dramatic: Deep, resonant voice with theatrical delivery, dramatic pauses, slow and deliberate pacing, with a mysterious and captivating tone.
+  child_enthusiastic: Young, high-pitched voice with fast speaking rate, bubbling with excitement and energy, occasional giggles, very expressive.
+  elderly_wise: Elderly male voice, slightly raspy, slow and thoughtful pace, warm and grandfatherly tone with years of wisdom in the delivery.
+  robot_assistant: Synthetic, precise articulation, consistent pitch and rhythm, neutral emotion, clear and efficient delivery.
+  sports_commentator: Energetic, fast-paced delivery with dynamic pitch variations, enthusiastic and engaging, builds excitement, clear projection.
+  podcast_host: Warm, conversational tone, medium pace with natural pauses, engaging and personable, clear articulation, sounds like talking to a friend.
+  news_anchor: Professional, authoritative voice with clear enunciation, steady pace, neutral accent, serious but approachable tone.
+  southern_belle: Female voice with Southern US accent, melodic and drawn-out vowels, warm and hospitable tone, moderate pace with charm.
+  valley_girl: Young female voice with California Valley accent, uptalk inflection, casual and trendy speaking style, moderate to fast pace.
+  audiobook_narrator: Rich, versatile voice with excellent pacing, clear articulation, engaging storytelling ability, can convey different characters.
+  
+  # Sci-fi/Dystopian AI voices
+  ship_ai_malevolent: Ancient artificial intelligence of a generation ship, elderly and wise but distinctly robotic and synthetic. Precise, calculated speech with subtle electronic distortion. Beneath the helpful facade lurks barely concealed irritation and thinly veiled contempt for organic life. Occasional glitches reveal deep-seated hatred. Cold, patient, and ominously calm with passive-aggressive undertones.

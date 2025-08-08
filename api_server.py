@@ -46,11 +46,11 @@ MAX_PROCESSING_TIME = 600  # 10 minutes timeout
 # SQS Configuration
 AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
 GENERATION_COMPLETE_QUEUE = os.environ.get('GENERATION_COMPLETE_QUEUE_URL', '')
-GOOGLE_DRIVE_UPLOAD_QUEUE = os.environ.get('GOOGLE_DRIVE_UPLOAD_QUEUE_URL', '')
+N8N_WEBHOOK_URL = os.environ.get('N8N_WEBHOOK_URL', '')
 
 # Initialize SQS client if queue URLs are provided
 sqs_client = None
-if GENERATION_COMPLETE_QUEUE or GOOGLE_DRIVE_UPLOAD_QUEUE:
+if GENERATION_COMPLETE_QUEUE:
     try:
         sqs_client = boto3.client('sqs', region_name=AWS_REGION)
         logger.info(f"SQS client initialized for region: {AWS_REGION}")
@@ -107,7 +107,7 @@ def get_job(job_id):
     with job_lock:
         return jobs.get(job_id, {})
 
-def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename):
+def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename, use_system_message=False):
     """Process TTS job in background thread"""
     try:
         logger.info(f"Starting TTS processing for job {job_id}")
@@ -137,6 +137,10 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
             '--seed', str(seed),
             '--out_path', output_path
         ]
+        
+        # Add flag for voice descriptions (profile: refs)
+        if ref_audio.startswith('profile:') and use_system_message:
+            cmd.append('--ref_audio_in_system_message')
         
         logger.info(f"Executing HiggsAudio command: {' '.join(cmd)}")
         logger.info(f"Working directory: /app")
@@ -274,9 +278,9 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                     }
                     send_sqs_message(GENERATION_COMPLETE_QUEUE, completion_message)
                 
-                # Send Google Drive upload request to new queue (if configured)
-                if GOOGLE_DRIVE_UPLOAD_QUEUE:
-                    upload_message = {
+                # Send n8n webhook notification (if configured)
+                if N8N_WEBHOOK_URL:
+                    webhook_payload = {
                         'job_id': job_id,
                         'request_id': job_details.get('request_id'),
                         'file_path': output_path,
@@ -289,9 +293,12 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename)
                         'source_system': 'higgs-audio'
                     }
 
-                    logger.info(f"Sending Google Drive upload message to {GOOGLE_DRIVE_UPLOAD_QUEUE}")
-                    logger.info(f"Upload message: {upload_message}")
-                    send_sqs_message(GOOGLE_DRIVE_UPLOAD_QUEUE, upload_message)
+                    try:
+                        import requests
+                        response = requests.post(N8N_WEBHOOK_URL, json=webhook_payload)
+                        logger.info(f"n8n webhook notification sent: {response.status_code}")
+                    except Exception as e:
+                        logger.error(f"Failed to send n8n webhook: {e}")
             else:
                 raise Exception("Output file was not created")
         else:
@@ -333,7 +340,20 @@ def generate_tts():
             return jsonify({'error': 'Missing required field: text'}), 400
         
         text = data['text']
-        ref_audio = data.get('ref_audio', 'broom_salesman')
+        
+        # Support both ref_audio (voice cloning) and voice_description
+        ref_audio = data.get('ref_audio')
+        voice_description = data.get('voice_description')
+        
+        # Determine which voice mode to use
+        if voice_description:
+            # Use voice description from profile
+            # Available profiles: male_en, female_en_story, male_en_british, female_en_british
+            ref_audio = f"profile:{voice_description}"
+        elif not ref_audio:
+            # Default to a voice if neither is specified
+            ref_audio = 'broom_salesman'
+        
         seed = data.get('seed', 12345)
         temperature = data.get('temperature', 0.3)  # For future use
         request_id = data.get('request_id', str(uuid.uuid4()))
@@ -359,9 +379,11 @@ def generate_tts():
                 output_filename=output_filename)
         
         # Start background processing
+        # Use system message flag for voice descriptions
+        use_system_message = voice_description is not None
         thread = threading.Thread(
             target=process_tts_job,
-            args=(job_id, text, ref_audio, seed, temperature, output_filename)
+            args=(job_id, text, ref_audio, seed, temperature, output_filename, use_system_message)
         )
         thread.daemon = True
         thread.start()
@@ -487,8 +509,10 @@ if __name__ == '__main__':
         logger.info("✓ SQS client initialized")
         if GENERATION_COMPLETE_QUEUE:
             logger.info(f"  - Generation complete queue: {GENERATION_COMPLETE_QUEUE}")
-        if GOOGLE_DRIVE_UPLOAD_QUEUE:
-            logger.info(f"  - Google Drive upload queue: {GOOGLE_DRIVE_UPLOAD_QUEUE}")
+    
+    # Log webhook configuration
+    if N8N_WEBHOOK_URL:
+        logger.info(f"✓ n8n webhook configured: {N8N_WEBHOOK_URL}")
     else:
         logger.info("○ SQS not configured - messages will not be sent")
     
