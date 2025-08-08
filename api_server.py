@@ -275,8 +275,8 @@ def generate_tts():
         
         # Determine which voice mode to use
         if voice_description:
-            # Use voice description from profile
-            # Available profiles: male_en, female_en_story, male_en_british, female_en_british
+            # Pass voice description directly - no need for YAML lookup
+            # The description can be a direct text description of the voice characteristics
             ref_audio = f"profile:{voice_description}"
         elif not ref_audio:
             # Default to a voice if neither is specified
