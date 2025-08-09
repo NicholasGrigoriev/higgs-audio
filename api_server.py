@@ -74,7 +74,7 @@ def get_job(job_id):
     with job_lock:
         return jobs.get(job_id, {})
 
-def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id=None, use_system_message=False ):
+def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id=None, use_system_message=False, voice_description=None):
     """Process TTS job in background thread"""
     try:
         logger.info(f"Starting TTS processing for job {job_id}")
@@ -88,6 +88,35 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename,
             transcript_path = transcript_file.name
         
         logger.info(f"Created transcript file: {transcript_path}")
+        
+        # Handle custom voice descriptions by temporarily updating the profile.yaml
+        original_profile_content = None
+        profile_path = "/app/examples/voice_prompts/profile.yaml"
+        
+        if voice_description and ref_audio.startswith('profile:'):
+            # Extract the profile name (everything after "profile:")
+            profile_name = ref_audio[len('profile:'):]
+            
+            # Back up and update the existing profile.yaml
+            import yaml
+            try:
+                # Read the original profile
+                with open(profile_path, 'r', encoding='utf-8') as f:
+                    original_profile_content = f.read()
+                    profile_data = yaml.safe_load(original_profile_content)
+                
+                # Add/update the custom voice description
+                profile_data['profiles'][profile_name] = voice_description
+                
+                # Write the updated profile
+                with open(profile_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(profile_data, f)
+                
+                logger.info(f"Updated profile.yaml with custom voice: {profile_name}")
+                logger.info(f"Custom voice description: {voice_description[:100]}...")
+            except Exception as e:
+                logger.error(f"Failed to update profile.yaml: {e}")
+                original_profile_content = None
         
         # Full output path
         output_path = os.path.join(OUTPUT_DIR, output_filename)
@@ -106,7 +135,7 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename,
         ]
         
         # Add flag for voice descriptions (profile: refs)
-        if ref_audio.startswith('profile:') and use_system_message:
+        if ref_audio.startswith('profile:') and (use_system_message or voice_description):
             cmd.append('--ref_audio_in_system_message')
         
         logger.info(f"Executing HiggsAudio command: {' '.join(cmd)}")
@@ -206,12 +235,21 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename,
         if stderr:
             logger.info(f"HiggsAudio stderr: {stderr[:500]}...")  # Truncate long output
         
-        # Clean up transcript file
+        # Clean up temporary files
         try:
             os.unlink(transcript_path)
             logger.info(f"Cleaned up transcript file: {transcript_path}")
         except Exception as e:
             logger.warning(f"Failed to clean up transcript file: {e}")
+        
+        # Restore original profile.yaml if it was modified
+        if original_profile_content is not None:
+            try:
+                with open(profile_path, 'w', encoding='utf-8') as f:
+                    f.write(original_profile_content)
+                logger.info(f"Restored original profile.yaml")
+            except Exception as e:
+                logger.warning(f"Failed to restore profile.yaml: {e}")
         
         if return_code == 0:
             # Get audio file size and check if file exists
@@ -234,12 +272,32 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename,
     
     except subprocess.TimeoutExpired:
         logger.error(f"Job {job_id} timed out after {MAX_PROCESSING_TIME}s")
+        
+        # Restore original profile.yaml if it was modified
+        if 'original_profile_content' in locals() and original_profile_content is not None:
+            try:
+                with open(profile_path, 'w', encoding='utf-8') as f:
+                    f.write(original_profile_content)
+                logger.info(f"Restored original profile.yaml after timeout")
+            except Exception as restore_error:
+                logger.warning(f"Failed to restore profile.yaml after timeout: {restore_error}")
+        
         save_job(job_id, JobStatus.TIMEOUT,
                 failed_at=datetime.now().isoformat(),
                 error="Processing timed out after 10 minutes")
     
     except Exception as e:
         logger.error(f"Job {job_id} failed: {str(e)}")
+        
+        # Restore original profile.yaml if it was modified
+        if 'original_profile_content' in locals() and original_profile_content is not None:
+            try:
+                with open(profile_path, 'w', encoding='utf-8') as f:
+                    f.write(original_profile_content)
+                logger.info(f"Restored original profile.yaml after error")
+            except Exception as restore_error:
+                logger.warning(f"Failed to restore profile.yaml after error: {restore_error}")
+        
         save_job(job_id, JobStatus.FAILED,
                 failed_at=datetime.now().isoformat(),
                 error=str(e),
@@ -269,15 +327,17 @@ def generate_tts():
         
         text = data['text']
         
+        # Create job ID first
+        job_id = create_job_id()
+        
         # Support both ref_audio (voice cloning) and voice_description
         ref_audio = data.get('ref_audio')
         voice_description = data.get('voice_description')
         
         # Determine which voice mode to use
         if voice_description:
-            # Use voice description from profile
-            # Available profiles: male_en, female_en_story, male_en_british, female_en_british
-            ref_audio = f"profile:{voice_description}"
+            # Use voice description - generate a unique profile name for this custom description
+            ref_audio = f"profile:custom_voice_{job_id[:8]}"
         elif not ref_audio:
             # Default to a voice if neither is specified
             ref_audio = 'broom_salesman'
@@ -286,9 +346,6 @@ def generate_tts():
         temperature = data.get('temperature', 0.3)  # For future use
         request_id = data.get('request_id', str(uuid.uuid4()))
         tg_chat_id = data.get('tg_chat_id')  # Get tg_chat_id from request
-        
-        # Create job ID and output filename
-        job_id = create_job_id()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # Sanitize request_id for Windows-compatible filename
@@ -313,7 +370,7 @@ def generate_tts():
         use_system_message = voice_description is not None
         thread = threading.Thread(
             target=process_tts_job,
-            args=(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id, use_system_message)
+            args=(job_id, text, ref_audio, seed, temperature, output_filename, tg_chat_id, use_system_message, voice_description)
         )
         thread.daemon = True
         thread.start()
