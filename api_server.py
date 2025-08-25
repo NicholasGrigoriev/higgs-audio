@@ -441,6 +441,278 @@ def download_audio(job_id):
     return send_file(file_path, as_attachment=True, 
                     download_name=f"{job.get('request_id', job_id)}.wav")
 
+@app.route('/tts/dialogue', methods=['POST'])
+def generate_dialogue():
+    """Generate multi-speaker dialogue using HiggsAudio"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data or 'dialogue' not in data:
+            return jsonify({'error': 'Missing required field: dialogue'}), 400
+        
+        dialogue_turns = data['dialogue']
+        if not isinstance(dialogue_turns, list) or len(dialogue_turns) < 2:
+            return jsonify({'error': 'Dialogue must be a list with at least 2 turns'}), 400
+        
+        # Extract options
+        options = data.get('options', {})
+        seed = options.get('seed', 12345)
+        temperature = options.get('temperature', 0.3)
+        scene_prompt = options.get('scene_prompt', None)
+        request_id = data.get('request_id', str(uuid.uuid4()))
+        tg_chat_id = data.get('tg_chat_id')
+        
+        # Build formatted transcript with speaker tags
+        transcript_lines = []
+        voices = []
+        speaker_map = {}
+        
+        for turn in dialogue_turns:
+            if not isinstance(turn, dict) or 'text' not in turn:
+                return jsonify({'error': 'Each dialogue turn must have a text field'}), 400
+            
+            speaker = turn.get('speaker', f'SPEAKER{len(speaker_map)}')
+            text = turn['text'].strip()
+            voice = turn.get('voice', None)
+            
+            # Map speaker to index if not already mapped
+            if speaker not in speaker_map:
+                speaker_map[speaker] = len(speaker_map)
+                if voice:
+                    voices.append(voice)
+                else:
+                    # Default voice assignment (alternating male/female)
+                    default_voice = 'belinda' if len(speaker_map) % 2 == 1 else 'broom_salesman'
+                    voices.append(default_voice)
+            
+            # Format transcript line with speaker tag
+            speaker_idx = speaker_map[speaker]
+            transcript_lines.append(f'[SPEAKER{speaker_idx}] {text}')
+        
+        # Join all dialogue lines
+        full_transcript = '\n'.join(transcript_lines)
+        
+        # Build ref_audio parameter (comma-separated voices)
+        ref_audio = ','.join(voices)
+        
+        # Create job ID and output filename
+        job_id = create_job_id()
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_request_id = request_id.replace(':', '-').replace('/', '-').replace('\\', '-').replace('?', '-').replace('*', '-').replace('"', '-').replace('<', '-').replace('>', '-').replace('|', '-')
+        output_filename = f"dialogue_{timestamp}_{safe_request_id}_{job_id}.wav"
+        
+        # Save initial job info
+        save_job(job_id, JobStatus.PENDING,
+                created_at=datetime.now().isoformat(),
+                type='dialogue',
+                transcript=full_transcript,
+                ref_audio=ref_audio,
+                speakers=list(speaker_map.keys()),
+                dialogue_turns=len(dialogue_turns),
+                seed=seed,
+                temperature=temperature,
+                scene_prompt=scene_prompt,
+                request_id=request_id,
+                tg_chat_id=tg_chat_id,
+                output_filename=output_filename)
+        
+        # Start background processing for dialogue
+        thread = threading.Thread(
+            target=process_dialogue_job,
+            args=(job_id, full_transcript, ref_audio, seed, temperature, scene_prompt, output_filename, tg_chat_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        logger.info(f"Started dialogue job {job_id} for request {request_id}")
+        logger.info(f"Dialogue has {len(dialogue_turns)} turns with {len(speaker_map)} speakers")
+        
+        return jsonify({
+            'job_id': job_id,
+            'status': JobStatus.PENDING,
+            'request_id': request_id,
+            'speakers': list(speaker_map.keys()),
+            'dialogue_turns': len(dialogue_turns),
+            'estimated_time_minutes': min(len(full_transcript) / 50, 15),  # Dialogues take longer
+            'message': 'Dialogue generation started'
+        }), 202
+    
+    except Exception as e:
+        logger.error(f"Error starting dialogue generation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def process_dialogue_job(job_id, transcript, ref_audio, seed, temperature, scene_prompt, output_filename, tg_chat_id=None):
+    """Process dialogue generation job in background thread"""
+    try:
+        logger.info(f"Starting dialogue processing for job {job_id}")
+        logger.info(f"Dialogue details - Transcript length: {len(transcript)} chars, Voices: {ref_audio}")
+        save_job(job_id, JobStatus.PROCESSING, 
+                 started_at=datetime.now().isoformat())
+        
+        # Create temporary transcript file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as transcript_file:
+            transcript_file.write(transcript)
+            transcript_path = transcript_file.name
+        
+        logger.info(f"Created dialogue transcript file: {transcript_path}")
+        
+        # Create temporary scene prompt file if provided
+        scene_prompt_args = []
+        if scene_prompt:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as scene_file:
+                scene_file.write(scene_prompt)
+                scene_path = scene_file.name
+                scene_prompt_args = ['--scene_prompt', scene_path]
+                logger.info(f"Created scene prompt file: {scene_path}")
+        
+        # Full output path
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        logger.info(f"Dialogue output will be saved to: {output_path}")
+        
+        # Build HiggsAudio CLI command for dialogue
+        cmd = [
+            'python3', GENERATION_SCRIPT,
+            '--transcript', transcript_path,
+            '--ref_audio', ref_audio,
+            '--seed', str(seed),
+            '--temperature', str(temperature),
+            '--chunk_method', 'speaker',  # Use speaker chunking for dialogues
+            '--out_path', output_path
+        ]
+        
+        # Add scene prompt if provided
+        if scene_prompt_args:
+            cmd.extend(scene_prompt_args)
+        
+        # Add system message flag for voice descriptions
+        if any('profile:' in v for v in ref_audio.split(',')):
+            cmd.append('--ref_audio_in_system_message')
+        
+        logger.info(f"Executing dialogue command: {' '.join(cmd)}")
+        
+        # Run HiggsAudio generation with timeout
+        start_time = time.time()
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd='/app',
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Thread-safe lists to store output
+        stdout_lines = []
+        stderr_lines = []
+        
+        def read_stdout():
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    line = line.rstrip('\n\r')
+                    logger.info(f"[Dialogue {job_id}] STDOUT: {line}")
+                    stdout_lines.append(line)
+            process.stdout.close()
+        
+        def read_stderr():
+            for line in iter(process.stderr.readline, ''):
+                if line:
+                    line = line.rstrip('\n\r')
+                    logger.warning(f"[Dialogue {job_id}] STDERR: {line}")
+                    stderr_lines.append(line)
+            process.stderr.close()
+        
+        # Start threads to read output
+        stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Monitor process with longer timeout for dialogues
+        DIALOGUE_MAX_TIME = 900  # 15 minutes for dialogues
+        last_log_time = time.time()
+        
+        while process.poll() is None:
+            current_time = time.time()
+            elapsed = current_time - start_time
+            
+            # Log progress every 30 seconds
+            if current_time - last_log_time >= 30:
+                logger.info(f"Dialogue {job_id} still processing... Elapsed: {elapsed:.1f}s")
+                last_log_time = current_time
+                save_job(job_id, JobStatus.PROCESSING,
+                        started_at=datetime.now().isoformat(),
+                        elapsed_seconds=elapsed)
+            
+            # Check for timeout
+            if elapsed > DIALOGUE_MAX_TIME:
+                logger.warning(f"Dialogue {job_id} timeout reached, terminating process")
+                process.terminate()
+                time.sleep(5)
+                if process.poll() is None:
+                    process.kill()
+                raise subprocess.TimeoutExpired(cmd, DIALOGUE_MAX_TIME)
+                
+            time.sleep(1)
+        
+        # Wait for threads to finish
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        
+        # Get return code
+        return_code = process.returncode
+        stdout = '\n'.join(stdout_lines)
+        stderr = '\n'.join(stderr_lines)
+        
+        processing_time = time.time() - start_time
+        logger.info(f"Dialogue process completed with return code: {return_code}")
+        logger.info(f"Dialogue processing time: {processing_time:.1f} seconds")
+        
+        # Clean up temporary files
+        try:
+            os.unlink(transcript_path)
+            if scene_prompt and 'scene_path' in locals():
+                os.unlink(scene_path)
+        except Exception as e:
+            logger.warning(f"Failed to clean up temp files: {e}")
+        
+        if return_code == 0:
+            # Check if output file exists
+            if os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                
+                save_job(job_id, JobStatus.COMPLETED,
+                        completed_at=datetime.now().isoformat(),
+                        processing_time_seconds=processing_time,
+                        output_file=output_filename,
+                        file_size_bytes=file_size,
+                        stdout=stdout,
+                        stderr=stderr)
+                
+                logger.info(f"Dialogue {job_id} completed successfully in {processing_time:.1f}s")
+            else:
+                raise Exception("Dialogue output file was not created")
+        else:
+            raise Exception(f"Dialogue generation failed with return code {return_code}: {stderr}")
+    
+    except subprocess.TimeoutExpired:
+        logger.error(f"Dialogue {job_id} timed out after 15 minutes")
+        save_job(job_id, JobStatus.TIMEOUT,
+                failed_at=datetime.now().isoformat(),
+                error="Dialogue processing timed out after 15 minutes")
+    
+    except Exception as e:
+        logger.error(f"Dialogue {job_id} failed: {str(e)}")
+        save_job(job_id, JobStatus.FAILED,
+                failed_at=datetime.now().isoformat(),
+                error=str(e),
+                stdout='\n'.join(stdout_lines) if 'stdout_lines' in locals() else '',
+                stderr='\n'.join(stderr_lines) if 'stderr_lines' in locals() else '')
+
 @app.route('/tts/jobs', methods=['GET'])
 def list_jobs():
     """List all jobs (for debugging)"""
@@ -473,6 +745,7 @@ def get_info():
         'available_endpoints': [
             'GET /health',
             'POST /tts/generate',
+            'POST /tts/dialogue',
             'GET /tts/status/<job_id>',
             'GET /tts/download/<job_id>',
             'GET /tts/jobs',

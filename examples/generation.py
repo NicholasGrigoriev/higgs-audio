@@ -402,10 +402,26 @@ def prepare_generation_context(scene_prompt, ref_audio, ref_audio_in_system_mess
             speaker_desc = []
             for spk_id, character_name in enumerate(speaker_info_l):
                 if character_name.startswith("profile:"):
-                    if voice_profile is None:
-                        with open(f"{CURR_DIR}/voice_prompts/profile.yaml", "r", encoding="utf-8") as f:
-                            voice_profile = yaml.safe_load(f)
-                    character_desc = voice_profile["profiles"][character_name[len("profile:") :].strip()]
+                    profile_key = character_name[len("profile:"):].strip()
+                    
+                    # Check if it's a direct description (contains spaces or descriptive words)
+                    # If it has spaces or common voice descriptors, treat it as a direct description
+                    if ' ' in profile_key or any(word in profile_key.lower() for word in 
+                        ['voice', 'accent', 'tone', 'pitch', 'male', 'female', 'slow', 'fast', 
+                         'calm', 'excited', 'british', 'american', 'robotic', 'friendly']):
+                        # Direct voice description passed as parameter
+                        character_desc = profile_key
+                    else:
+                        # Try to load from YAML file for backward compatibility
+                        try:
+                            if voice_profile is None:
+                                with open(f"{CURR_DIR}/voice_prompts/profile.yaml", "r", encoding="utf-8") as f:
+                                    voice_profile = yaml.safe_load(f)
+                            character_desc = voice_profile["profiles"].get(profile_key, profile_key)
+                        except (FileNotFoundError, KeyError):
+                            # If YAML doesn't exist or key not found, use the key as description
+                            character_desc = profile_key
+                    
                     speaker_desc.append(f"SPEAKER{spk_id}: {character_desc}")
                 else:
                     speaker_desc.append(f"SPEAKER{spk_id}: {AUDIO_PLACEHOLDER_TOKEN}")
