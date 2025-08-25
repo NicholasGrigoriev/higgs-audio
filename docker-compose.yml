@@ -11,6 +11,8 @@ services:
       - "./models:/app/models:ro"
       # Mount Hugging Face cache for persistent model storage  
       - "./cache/huggingface:/root/.cache/huggingface"
+      # Mount voice prompts folder for voice cloning references
+      - "./examples/voice_prompts:/app/examples/voice_prompts"
     environment:
       - PYTHONPATH=/app
       - OUTPUT_DIR=/app/output
