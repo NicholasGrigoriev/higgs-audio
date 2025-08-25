@@ -325,6 +325,128 @@ We report the word-error-rate (WER) and the geometric mean between intra-speaker
 | Higgs Audio v2 (base)     | **18.88**                    | **51.95**          | 11.89      | **67.92**              | **14.65**               | 55.28              |
 
 
+## API Usage Examples
+
+### Multi-Speaker Dialogue Generation
+
+The API server provides a `/tts/dialogue` endpoint for generating multi-speaker dialogues. This endpoint accepts an array of dialogue turns with speaker assignments and voice specifications.
+
+#### Dialogue Request Format
+
+```bash
+curl -X POST http://localhost:8000/tts/dialogue \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dialogue": [
+      {
+        "speaker": "Alice",
+        "text": "Hey Bob, have you seen the new AI model?",
+        "voice": "belinda"
+      },
+      {
+        "speaker": "Bob",
+        "text": "Yes! It is incredible how far we have come with voice synthesis.",
+        "voice": "profile:male_en_british"
+      },
+      {
+        "speaker": "Alice",
+        "text": "I know, right? The quality is almost indistinguishable from human speech."
+      },
+      {
+        "speaker": "Bob",
+        "text": "Absolutely. What excites me most is the potential for creative applications."
+      }
+    ],
+    "options": {
+      "seed": 12345,
+      "temperature": 0.3,
+      "scene_prompt": "Two colleagues having an enthusiastic conversation about AI technology in a quiet office"
+    },
+    "request_id": "dialogue-example-001"
+  }'
+```
+
+#### Voice Specification Options
+
+1. **Voice Cloning**: Use pre-loaded voice names
+   - `"voice": "belinda"` - Female voice
+   - `"voice": "broom_salesman"` - Male voice  
+   - `"voice": "en_man"`, `"voice": "en_woman"` - Alternative voices
+
+2. **Voice Descriptions**: Use profile-based descriptions
+   - `"voice": "profile:male_en_british"` - British male voice
+   - `"voice": "profile:female_en_story"` - Female storyteller voice
+   - `"voice": "profile:Young enthusiastic female with slight valley girl accent"`
+   - `"voice": "profile:Deep male voice, slow and mysterious, with a slight rasp"`
+
+3. **Automatic Voice Assignment**: Omit voice field
+   - The system will automatically alternate between appropriate voices
+
+#### Response Format
+
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "pending",
+  "request_id": "dialogue-example-001",
+  "speakers": ["Alice", "Bob"],
+  "dialogue_turns": 4,
+  "estimated_time_minutes": 2,
+  "message": "Dialogue generation started"
+}
+```
+
+#### Checking Job Status
+
+```bash
+curl http://localhost:8000/tts/status/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+#### Python Example
+
+```python
+import requests
+import time
+
+# Submit dialogue generation request
+response = requests.post(
+    "http://localhost:8000/tts/dialogue",
+    json={
+        "dialogue": [
+            {"speaker": "Narrator", "text": "Once upon a time, in a distant kingdom...", 
+             "voice": "profile:Elderly female storyteller with warm, crackling voice"},
+            {"speaker": "Knight", "text": "I shall defend this realm with my life!", 
+             "voice": "profile:Young brave male knight, heroic and determined"},
+            {"speaker": "Dragon", "text": "You dare challenge me, mortal?", 
+             "voice": "profile:Ancient dragon, deep rumbling voice with echo"}
+        ],
+        "options": {"temperature": 0.4, "scene_prompt": "Epic fantasy scene"},
+        "request_id": "fantasy-dialogue"
+    }
+)
+
+job_data = response.json()
+job_id = job_data["job_id"]
+
+# Poll for completion
+while True:
+    status_response = requests.get(f"http://localhost:8000/tts/status/{job_id}")
+    status = status_response.json()
+    
+    if status["status"] == "completed":
+        print(f"Dialogue ready: {status['output_filename']}")
+        # Download the audio file
+        audio_response = requests.get(f"http://localhost:8000/tts/download/{job_id}")
+        with open("dialogue.wav", "wb") as f:
+            f.write(audio_response.content)
+        break
+    elif status["status"] == "failed":
+        print(f"Generation failed: {status.get('error')}")
+        break
+    
+    time.sleep(5)  # Wait 5 seconds before checking again
+```
+
 ## Citation
 
 If you feel the repository is helpful, please kindly cite as:
