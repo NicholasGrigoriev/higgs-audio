@@ -130,6 +130,7 @@ def process_tts_job(job_id, text, ref_audio, seed, temperature, output_filename,
             'python3', GENERATION_SCRIPT,
             '--transcript', transcript_path,
             '--ref_audio', ref_audio,
+            '--temperature', str(temperature),
             '--seed', str(seed),
             '--out_path', output_path
         ]
