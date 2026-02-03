@@ -1,11 +1,23 @@
-<h1 align="center">Higgs Audio V2: Redefining Expressiveness in Audio Generation</h1>
+<h1 align="center">Higgs Audio: Redefining Expressiveness in Audio Generation</h1>
 
 <div align="center" style="display: flex; justify-content: center; margin-top: 10px;">
-  <a href="https://boson.ai/blog/higgs-audio-v2"><img src='https://img.shields.io/badge/🚀-Launch Blogpost-228B22' style="margin-right: 5px;"></a>
+  <a href="https://boson.ai/blog/higgs-audio-v2"><img src='https://img.shields.io/badge/🚀-V2 Blogpost-228B22' style="margin-right: 5px;"></a>
+  <a href="https://www.boson.ai/blog/higgs-audio-v2.5"><img src='https://img.shields.io/badge/🚀-V2.5 Blogpost-228B22' style="margin-right: 5px;"></a>
   <a href="https://boson.ai/demo/tts"><img src="https://img.shields.io/badge/🕹️-Boson%20AI%20Playground-9C276A" style="margin-right: 5px;"></a>
   <a href="https://huggingface.co/spaces/smola/higgs_audio_v2"><img src="https://img.shields.io/badge/🎮-HF%20Space%20Playground-8A2BE2" style="margin-right: 5px;"></a>
   <a href="https://huggingface.co/bosonai/higgs-audio-v2-generation-3B-base"><img src="https://img.shields.io/badge/🤗-Checkpoints (3.6B LLM + 2.2B audio adapter)-ED5A22.svg" style="margin-right: 5px;"></a>
 </div>
+
+## NEWS！
+
+We are proud to launch **Higgs-Audio V2.5**, the latest iteration of Boson AI’s Audio model, designed to bring high-fidelity generation into production environments. Building on Higgs-Audio V2, this release combines improved efficiency with the stability required for real-world deployment.
+
+With V2.5, we condensed the model architecture to 1B parameters while surpassing speed and accuracy of the prior 3B model. The result is achieved through a new alignment strategy using Group Relative Policy Optimization (GRPO) on our curated Voice Bank dataset, combined with improved voice cloning and finer-grained style control.
+
+For detailed model performance, key improvements, and usage, please check our [blog](https://www.boson.ai/blog/higgs-audio-v2.5).
+
+
+## Higgs Audio V2
 
 
 We are open-sourcing Higgs Audio v2, a powerful audio foundation model pretrained on over 10 million hours of audio data and a diverse set of text data. Despite having no post-training or fine-tuning, Higgs Audio v2 excels in expressive audio generation, thanks to its deep language and acoustic understanding.
@@ -324,6 +336,9 @@ We report the word-error-rate (WER) and the geometric mean between intra-speaker
 | [nari-labs/Dia-1.6B-0626](https://huggingface.co/nari-labs/Dia-1.6B-0626)         | \-                       | \-             | 17.62      | 63.15          | 19.46               | **61.14**          |
 | Higgs Audio v2 (base)     | **18.88**                    | **51.95**          | 11.89      | **67.92**              | **14.65**               | 55.28              |
 
+## Contribution and Support
+
+For contribution and support guidelines, please see the support guidelines at [SUPPORT_GUIDELINES.md](SUPPORT_GUIDELINES.md).
 
 ## API Usage Examples
 
@@ -464,3 +479,8 @@ If you feel the repository is helpful, please kindly cite as:
 ## Third-Party Licenses
 
 The `boson_multimodal/audio_processing/` directory contains code derived from third-party repositories, primarily from [xcodec](https://github.com/zhenye234/xcodec). Please see the [`LICENSE`](boson_multimodal/audio_processing/LICENSE) in that directory for complete attribution and licensing information.
+
+## We Are Hiring!
+
+If you are passionate about multimodal AI, speech/audio models, or large-scale systems, 
+check out our open positions at [Boson AI Careers](https://jobs.lever.co/bosonai).
